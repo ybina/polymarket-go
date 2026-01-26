@@ -234,6 +234,101 @@ sk, err := signer.NewSigner(signer.SignerConfig{
 })
 ```
 
+### 3) Turnkey: deploy SAFE wallet and approve for polymarket
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/ybina/polymarket-go/client/relayer"
+	"github.com/ybina/polymarket-go/client/signer"
+	"github.com/ybina/polymarket-go/client/types"
+	"github.com/ybina/polymarket-go/tools/headers"
+	"github.com/ybina/polymarket-go/turnkey"
+)
+
+func main() {
+	tkCfg := turnkey.Config{
+		PubKey:       "YOUR_TURNKEY_PUBLIC_KEY",
+		PrivateKey:   "YOUR_TURNKEY_PRIVATE_KEY",
+		Organization: "YOUR_ORG_ID",
+		WalletName:   "YOUR_MASTER_WALLET_NAME",
+	}
+
+	sk, err := signer.NewSigner(signer.SignerConfig{
+		SignerType:    signer.Turnkey,
+		TurnkeyConfig: &tkCfg,
+		ChainID:       137, 
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	builderCfg := headers.BuilderConfig{
+		APIKey:     "YOUR_BUILDER_API_KEY",
+		Secret:     "YOUR_BUILDER_SECRET",
+		Passphrase: "YOUR_BUILDER_PASSPHRASE",
+	}
+	
+	relayerURL := "https://relayer-v2.polymarket.com"
+	chain := types.ChainPolygon
+	proxyURL := "" // option "http://127.0.0.1:7890"
+
+	rc, err := relayer.NewRelayClient(relayerURL, chain, sk, &builderCfg, &proxyURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	turnkeyAccount := common.HexToAddress("0xYOUR_TURNKEY_ACCOUNT_ADDRESS")
+	
+	safeAddr, deployResp, err := rc.DeployWithTurnkey(turnkeyAccount)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("[DEPLOY] safe=%s txID=%s txHash=%s hash=%s\n",
+		safeAddr.Hex(),
+		deployResp.TransactionID,
+		deployResp.TransactionHash,
+		deployResp.Hash,
+	)
+	
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		ok, err := rc.IsDeployed(safeAddr)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			log.Fatalf("safe not deployed within timeout: %s", safeAddr.Hex())
+		}
+		time.Sleep(3 * time.Second)
+	}
+	fmt.Printf("[DEPLOY] confirmed deployed: %s\n", safeAddr.Hex())
+	approveResp, err := rc.ApproveForPolymarketWithTurnkey(turnkeyAccount)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if approveResp == nil {
+		fmt.Println("[APPROVE] already approved; nothing to do")
+		return
+	}
+
+	fmt.Printf("[APPROVE] txID=%s txHash=%s hash=%s\n",
+		approveResp.TransactionID,
+		approveResp.TransactionHash,
+		approveResp.Hash,
+	)
+}
+```
+
 ### 4) WebSocket: subscribe to market channel
 
 ```go
