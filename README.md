@@ -7,6 +7,8 @@ A Go SDK for **Polymarket** (community/third‑party implementation). It covers 
 
 ---
 
+If you like this repo, please give me a star
+
 ## Features
 
 - **CLOB (REST)**: orderbook, markets, prices, trades, order management, rewards/notifications, etc. (`client/clob`)
