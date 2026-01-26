@@ -234,7 +234,7 @@ sk, err := signer.NewSigner(signer.SignerConfig{
 })
 ```
 
-### 3) Turnkey: deploy SAFE wallet and approve for polymarket
+### 4) Turnkey: deploy SAFE wallet and approve for polymarket
 
 ```go
 package main
@@ -329,7 +329,14 @@ func main() {
 }
 ```
 
-### 4) WebSocket: subscribe to market channel
+### 5) create a market order with turnkey
+client/clob/clob_client_test.go
+```go
+    
+    func Test_TurnkeyCreateMarketOrder()
+```
+
+### 6) WebSocket: subscribe to market channel
 
 ```go
 wsClient := ws.NewWebSocketClient(clobClient, &ws.WebSocketClientOptions{
@@ -364,16 +371,8 @@ go test ./...
 
 ---
 
-## Notes / Suggested Improvements
 
-Your SDK is already quite complete. If you want to make it more “production-ready”, consider:
 
-- unified HTTP client: retries, backoff, rate limiting, structured logging, tracing
-- consistent error types (endpoint/status/body parsing)
-- more end-to-end examples for Turnkey + Safe relayer transaction flows
-- richer `godoc` examples (`Example*`) for key entry points
-
----
 
 ## License
 
