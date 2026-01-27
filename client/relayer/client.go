@@ -472,7 +472,7 @@ func (c *RelayClient) submit(req *model.TransactionRequest) (*ClientRelayerTrans
 	if len(respBytes) > 0 {
 		var pretty bytes.Buffer
 		if err := json.Indent(&pretty, respBytes, "", "  "); err == nil {
-			log.Printf("submit response (pretty):\n%s\n", pretty.String())
+			//log.Printf("submit response (pretty):\n%s\n", pretty.String())
 		} else {
 			log.Printf("submit response (raw): %s\n", string(respBytes))
 		}
@@ -964,7 +964,7 @@ func (c *RelayClient) TransferUsdceFromSafeWithTurnkey(
 		return "", err
 	}
 	if resp != nil {
-		log.Printf("Transfer submitted. txID=%s txHash=%s", resp.TransactionID, resp.TransactionHash)
+		//log.Printf("Transfer submitted. txID=%s txHash=%s", resp.TransactionID, resp.TransactionHash)
 		return resp.TransactionHash, nil
 	}
 	return "", errors.New("response is empty")

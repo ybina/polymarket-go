@@ -8,6 +8,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/shopspring/decimal v1.4.0
 	github.com/tkhq/go-sdk v0.14.0
+	resty.dev/v3 v3.0.0-beta.6
 )
 
 require (

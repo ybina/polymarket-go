@@ -362,6 +362,29 @@ _ = wsClient.Subscribe([]string{"TOKEN_ID"})
 
 ---
 
+### 7) Bridge: create bridge deposit address
+
+```go
+    client, err := bridge.NewBridgeClient(&ClientConfig{
+		Timeout:  20 * time.Second,
+		ProxyUrl: "",
+	})
+    if err != nil {
+	    return
+	}
+	safeAddr := common.HexToAddress("")
+	res, err := client.CreateDepositAddress(safeAddr)
+	if err != nil {
+		
+		return
+	}
+	resStr, err := sonic.MarshalString(res)
+	if err != nil {
+		return
+	}
+    log.Println(resStr)
+```
+
 ## Testing
 
 There are `*_test.go` files (e.g. `client/clob/clob_client_test.go`, `client/gamma/client_test.go`, `turnkey/turnkeyService_test.go`).  
