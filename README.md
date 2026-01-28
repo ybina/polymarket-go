@@ -25,10 +25,15 @@ If you like this repo, please give me a star
 - **WebSocket**
   - Connects to `wss://ws-subscriptions-clob.polymarket.com`
   - Auto-reconnect, ping/pong, subscribe/unsubscribe, callback dispatch (`client/ws`)
+- **Bridge assets**
+  - Create bridge deposit address
+  - Get supported assets
+  - Get deposit status
+  - Get a quote
 - **Turnkey Integration**
-  - Create/reuse a master wallet
-  - Create sub-accounts (BIP32 paths)
-  - Sign payloads via Turnkey (`turnkey`, `client/signer`)
+    - Create/reuse a master wallet
+    - Create sub-accounts (BIP32 paths)
+    - Sign payloads via Turnkey (`turnkey`, `client/signer`)
 
 ---
 
@@ -40,6 +45,7 @@ If you like this repo, please give me a star
 - `client/data` – `data-api.polymarket.com` client
 - `client/gamma` – `gamma-api.polymarket.com` client
 - `client/signer` – unified signer (PrivateKey / Turnkey)
+- `client/bridge` – bridge client for multichain asset bridge
 - `turnkey` – Turnkey wallet management + signing
 - `tools/*` – EIP712 / HMAC / headers / general utilities
 
