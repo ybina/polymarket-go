@@ -34,6 +34,9 @@ If you like this repo, please give me a star
     - Create/reuse a master wallet
     - Create sub-accounts (BIP32 paths)
     - Sign payloads via Turnkey (`turnkey`, `client/signer`)
+- **Proxy**
+    - support get data and trading throw your local proxy
+    - if you do not need proxy, set proxy url to empty string
 
 ---
 

@@ -1058,8 +1058,36 @@ func (c *ClobClient) CancelOrders() {
 
 }
 
-func (c *ClobClient) CancelAllOrders() {
+func (c *ClobClient) CancelAllOrders(signerAddr common.Address) (*types.OrderResponse, error) {
+	if err := c.AssertL2Auth(); err != nil {
+		return nil, err
+	}
+	bodyJs := ""
 
+	args := &types.L2HeaderArgs{
+		Method:         "DELETE",
+		RequestPath:    endpoint.CancelAll,
+		Body:           bodyJs,
+		SerializedBody: bodyJs,
+	}
+
+	timestamp, err := c.GetServerTime()
+	if err != nil {
+		return nil, err
+	}
+	tsStr := strconv.FormatInt(timestamp, 10)
+
+	l2Headers, err := headers.CreateL2Headers(signerAddr, c.creds, args, tsStr)
+	if err != nil {
+		return nil, err
+	}
+
+	var result types.OrderResponse
+	if err := c.deleteWithHeaders(endpoint.CancelAll, l2Headers, bodyJs, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
 
 func (c *ClobClient) CreateAndPostMarketOrder(args clob_types.MarketOrderArgs, option clob_types.PartialCreateOrderOptions) (*types.OrderResponse, error) {
@@ -1129,4 +1157,5 @@ func (c *ClobClient) createMarketOrder(args clob_types.MarketOrderArgs, option c
 func (c *ClobClient) CancelMarketOrders() {}
 
 func (c *ClobClient) GetBuilderTrades() {
+
 }

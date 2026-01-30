@@ -84,3 +84,28 @@ func TestBridgeClient_GetAQuote(t *testing.T) {
 	t.Log(resStr)
 
 }
+
+func TestBridgeClient_GetDepositStatus(t *testing.T) {
+	client, err := NewBridgeClient(&ClientConfig{
+		Timeout:  20 * time.Second,
+		ProxyUrl: "http://127.0.0.1:7890",
+	})
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	// from polymarket
+	depositAddr := ""
+	status, err := client.GetDepositStatus(depositAddr)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	statusStr, err := sonic.MarshalString(status)
+
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	t.Log(statusStr)
+}
