@@ -8,8 +8,8 @@ import (
 )
 
 func TestGammaSDK_GetMarketByTokenId(t *testing.T) {
-	tokenId := ""
-	proxyUrl := ""
+	tokenId := "25986405577356928223848081260299259484163711501323323218252464960086540660718"
+	proxyUrl := "http://127.0.0.1:7890"
 	client, err := NewGammaSDK(&proxyUrl)
 	if err != nil {
 		t.Error(err)
@@ -29,4 +29,5 @@ func TestGammaSDK_GetMarketByTokenId(t *testing.T) {
 		return
 	}
 	log.Println(resStr)
+	log.Printf("conditionId:%v\n", res[0].ConditionID)
 }

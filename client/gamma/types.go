@@ -193,30 +193,54 @@ type EventByIdQuery struct {
 	IncludeChat *bool `json:"include_chat,omitempty"`
 }
 
+type StringArray []string
+
+func (a *StringArray) UnmarshalJSON(b []byte) error {
+	// null
+	if len(b) == 0 || string(b) == "null" {
+		*a = nil
+		return nil
+	}
+
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		if s == "" {
+			*a = []string{}
+			return nil
+		}
+		return json.Unmarshal([]byte(s), (*[]string)(a))
+	}
+
+	return json.Unmarshal(b, (*[]string)(a))
+}
+
 type Market struct {
-	ID               string   `json:"id"`
-	Question         string   `json:"question"`
-	ConditionID      string   `json:"conditionId"`
-	Slug             string   `json:"slug"`
-	Liquidity        *string  `json:"liquidity,omitempty"`
-	StartDate        *string  `json:"startDate,omitempty"`
-	Image            string   `json:"image"`
-	Icon             string   `json:"icon"`
-	Description      string   `json:"description"`
-	Active           bool     `json:"active"`
-	Volume           string   `json:"volume"`
-	Outcomes         []string `json:"outcomes"`
-	OutcomePrices    []string `json:"outcomePrices"`
-	Closed           bool     `json:"closed"`
-	New              *bool    `json:"new,omitempty"`
-	QuestionID       *string  `json:"questionId,omitempty"`
-	VolumeNum        float64  `json:"volumeNum"`
-	LiquidityNum     *float64 `json:"liquidityNum,omitempty"`
-	StartDateIso     *string  `json:"startDateIso,omitempty"`
-	HasReviewedDates *bool    `json:"hasReviewedDates,omitempty"`
-	ClobTokenIDs     []string `json:"clobTokenIds"`
-	EndDate          *string  `json:"endDate,omitempty"`
-	LastActiveAt     *string  `json:"lastActiveAt,omitempty"`
+	ID               string      `json:"id"`
+	Question         string      `json:"question"`
+	ConditionID      string      `json:"conditionId"`
+	Slug             string      `json:"slug"`
+	Liquidity        *string     `json:"liquidity,omitempty"`
+	StartDate        *string     `json:"startDate,omitempty"`
+	Image            string      `json:"image"`
+	Icon             string      `json:"icon"`
+	Description      string      `json:"description"`
+	Active           bool        `json:"active"`
+	Volume           string      `json:"volume"`
+	Outcomes         StringArray `json:"outcomes"`
+	OutcomePrices    StringArray `json:"outcomePrices"`
+	Closed           bool        `json:"closed"`
+	New              *bool       `json:"new,omitempty"`
+	QuestionID       *string     `json:"questionId,omitempty"`
+	VolumeNum        float64     `json:"volumeNum"`
+	LiquidityNum     *float64    `json:"liquidityNum,omitempty"`
+	StartDateIso     *string     `json:"startDateIso,omitempty"`
+	HasReviewedDates *bool       `json:"hasReviewedDates,omitempty"`
+	ClobTokenIDs     StringArray `json:"clobTokenIds"`
+	EndDate          *string     `json:"endDate,omitempty"`
+	LastActiveAt     *string     `json:"lastActiveAt,omitempty"`
 }
 
 type UpdatedMarketQuery struct {
