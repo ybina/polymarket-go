@@ -384,6 +384,38 @@ func (c *ClobClient) GetClosedOnlyMode(funder common.Address) (*types.BanStatus,
 	return &result, err
 }
 
+// GetBalanceAllowance gets the balance and allowance for the funder.
+// Requires L2 authentication.
+// Set params.AssetType to AssetTypeCollateral for USDC or AssetTypeConditional for a YES/NO token.
+// When AssetTypeConditional, params.TokenID must be set.
+func (c *ClobClient) GetBalanceAllowance(funder common.Address, params *types.BalanceAllowanceParams) (*types.BalanceAllowanceResponse, error) {
+	if c.creds == nil {
+		return nil, fmt.Errorf("API credentials are required")
+	}
+
+	headerArgs := &types.L2HeaderArgs{
+		Method:      "GET",
+		RequestPath: endpoint.GetBalanceAllowance,
+	}
+
+	l2Headers, err := c.createL2Headers(funder, headerArgs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create L2 headers: %w", err)
+	}
+
+	queryParams := url.Values{}
+	if params != nil {
+		queryParams.Add("asset_type", string(params.AssetType))
+		if params.TokenID != nil {
+			queryParams.Add("token_id", *params.TokenID)
+		}
+	}
+
+	var result types.BalanceAllowanceResponse
+	err = c.getJSONWithHeadersAndParams(endpoint.GetBalanceAllowance, l2Headers, queryParams, &result)
+	return &result, err
+}
+
 // DeleteApiKey deletes API key
 func (c *ClobClient) DeleteApiKey(funder common.Address) error {
 	if c.creds == nil {
