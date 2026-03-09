@@ -1,19 +1,14 @@
 package turnkey
 
 import (
-	"encoding/base64"
-	"encoding/hex"
-	"errors"
+	"bytes"
+	"encoding/json"
 	"fmt"
-	"strconv"
+	"io"
+	"net/http"
 	"time"
 
 	"github.com/tkhq/go-sdk"
-	"github.com/tkhq/go-sdk/pkg/api/client/signing"
-	"github.com/tkhq/go-sdk/pkg/api/client/wallets"
-	"github.com/tkhq/go-sdk/pkg/api/models"
-	"github.com/tkhq/go-sdk/pkg/apikey"
-	"github.com/ybina/polymarket-go/tools/utils"
 )
 
 type Config struct {
@@ -21,6 +16,8 @@ type Config struct {
 	PrivateKey   string `json:"privateKey"`
 	Organization string `json:"organization"`
 	WalletName   string `json:"masterWalletName"`
+	FcUrl        string `json:"fcUrl"`
+	BearerToken  string `json:"bearerToken"`
 }
 
 type WalletInfo struct {
@@ -29,273 +26,113 @@ type WalletInfo struct {
 }
 
 type Client struct {
-	client     *sdk.Client
-	WalletName string
-	WalletId   string
+	client      *sdk.Client
+	WalletName  string
+	WalletId    string
+	baseURL     string
+	bearerToken string
+	httpClient  *http.Client
 }
 
 func NewTurnKeyService(config Config) (turnkeyClient Client, err error) {
 
-	scheme := apikey.SchemeP256
-	apiKey, err := apikey.FromTurnkeyPrivateKey(config.PrivateKey, scheme)
-	if err != nil {
-		panic(err)
-	}
-	apiKey.Metadata.Organizations = []string{config.Organization}
-	var turnKeyClient Client
-	client, err := sdk.New(sdk.WithAPIKey(apiKey))
-
-	if err != nil {
-		return turnKeyClient, err
-	}
-	if config.WalletName == "" {
-		return turnKeyClient, fmt.Errorf("wallet name is required")
-	}
-	turnKeyClient.WalletName = config.WalletName
-	turnKeyClient.client = client
-	walletId, err := turnKeyClient.TryCreateNewWallet(config.WalletName)
-	if err != nil {
-		return turnKeyClient, err
-	}
-	turnKeyClient.WalletId = walletId
-
-	return turnKeyClient, nil
+	return Client{
+		baseURL:     config.FcUrl,
+		bearerToken: config.BearerToken,
+		httpClient:  &http.Client{Timeout: 30 * time.Second},
+	}, nil
 }
 
-func (c *Client) TryCreateNewWallet(walletName string) (walletId string, err error) {
-
-	list, err := c.GetWalletList()
-	if err != nil {
-		return "", fmt.Errorf("failed to get existing master wallet list: %w", err)
-	}
-
-	for _, w := range list {
-		if w.WalletName != nil && *w.WalletName == walletName {
-			if w.WalletID != nil {
-				return *w.WalletID, nil
-			}
-			return "", fmt.Errorf("got nil walletID for %s", walletName)
-		}
-	}
-	walletId, _, err = c.CreateNewWallet(walletName)
-	return
+type remoteResponse struct {
+	Success bool            `json:"success"`
+	Data    json.RawMessage `json:"data,omitempty"`
+	Error   string          `json:"error,omitempty"`
 }
 
-func (c *Client) GetWalletList() ([]*models.Wallet, error) {
-	if c.client == nil {
-		return nil, errors.New("client is nil")
+type AccountInfo struct {
+	Address string `json:"address"`
+	Path    string `json:"path"`
+}
+
+func (c *Client) post(path string, payload interface{}) (*remoteResponse, error) {
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	params := wallets.NewGetWalletsParams().WithBody(&models.GetWalletsRequest{
-		OrganizationID: c.client.DefaultOrganization(),
+
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+path, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.bearerToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	var result remoteResponse
+	if err := json.Unmarshal(respBytes, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal response (status=%d, body=%s): %w", resp.StatusCode, string(respBytes), err)
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("remote error: %s", result.Error)
+	}
+
+	return &result, nil
+}
+
+// Sign 对原始字节进行签名，返回十六进制签名字符串（0x r+s+v 格式）
+func (c *Client) Sign(account string, b64Payload string) (string, error) {
+	// 云端 from.go 中 Sign() 接受 base64 编码的 payload
+
+	resp, err := c.post("/sign", map[string]string{
+		"account": account,
+		"payload": b64Payload,
 	})
+	if err != nil {
+		return "", err
+	}
 
-	resp, err := c.client.V0().Wallets.GetWallets(params, c.client.Authenticator)
+	var result map[string]string
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return "", fmt.Errorf("parse sign result: %w", err)
+	}
+	return result["signature"], nil
+}
+
+// GetAccounts 获取钱包账户列表。idx=-1 获取全部；idx>=0 获取指定派生路径索引的账户。
+func (c *Client) GetAccounts(idx int64) ([]AccountInfo, error) {
+	resp, err := c.post("/accounts", map[string]int64{"idx": idx})
 	if err != nil {
 		return nil, err
 	}
 
-	if resp == nil ||
-		resp.Payload == nil ||
-		resp.Payload.Wallets == nil || len(resp.Payload.Wallets) <= 0 {
-		return nil, errors.New("unexpected empty response from GetWallet")
+	var accounts []AccountInfo
+	if err := json.Unmarshal(resp.Data, &accounts); err != nil {
+		return nil, fmt.Errorf("parse accounts result: %w", err)
 	}
-
-	return resp.Payload.Wallets, nil
+	return accounts, nil
 }
 
-func (c *Client) CreateNewWallet(walletName string) (walletId string, depositAddr string, err error) {
-	if walletName == "" {
-		return "", "", errors.New("walletName is empty")
-	}
-	path := "m/44'/60'/0'/0/0"
-	timestamp := time.Now().UnixMilli()
-	timestampString := strconv.FormatInt(timestamp, 10)
-	params := wallets.NewCreateWalletParams().WithBody(&models.CreateWalletRequest{
-		OrganizationID: c.client.DefaultOrganization(),
-		Parameters: &models.CreateWalletIntent{
-			Accounts: []*models.WalletAccountParams{
-				{
-					AddressFormat: models.AddressFormatEthereum.Pointer(),
-					Curve:         models.CurveSecp256k1.Pointer(),
-					Path:          &path,
-					PathFormat:    models.PathFormatBip32.Pointer(),
-				},
-			},
-			WalletName: &walletName,
-		},
-		TimestampMs: &timestampString,
-		Type:        (*string)(models.ActivityTypeCreateWallet.Pointer()),
-	})
-
-	resp, err := c.client.V0().Wallets.CreateWallet(params, c.client.Authenticator)
-	if err != nil {
-		return "", "", err
-	}
-	if resp.Payload.Activity.Result.CreateWalletResult.WalletID == nil || *resp.Payload.Activity.Result.CreateWalletResult.WalletID == "" {
-		return "", "", fmt.Errorf("got nil walletID for %s", walletName)
-	}
-	if len(resp.Payload.Activity.Result.CreateWalletResult.Addresses) <= 0 || resp.Payload.Activity.Result.CreateWalletResult.Addresses[0] == "" {
-		return "", "", errors.New("unexpected empty addresses")
-	}
-	return *resp.Payload.Activity.Result.CreateWalletResult.WalletID, resp.Payload.Activity.Result.CreateWalletResult.Addresses[0], nil
-}
-
+// CreateAccount 在指定派生索引创建新账户，返回以太坊地址
 func (c *Client) CreateAccount(idx uint64) (string, error) {
-	if c.WalletId == "" {
-		return "", errors.New("walletId is empty")
-	}
-	timestamp := time.Now().UnixMilli()
-	timestampString := strconv.FormatInt(timestamp, 10)
-	path := fmt.Sprintf("m/44'/60'/0'/0/%d", idx)
-	params := wallets.NewCreateWalletAccountsParams().WithBody(&models.CreateWalletAccountsRequest{
-		OrganizationID: c.client.DefaultOrganization(),
-		TimestampMs:    &timestampString,
-		Parameters: &models.CreateWalletAccountsIntent{
-			WalletID: &c.WalletId,
-			Accounts: []*models.WalletAccountParams{
-				&models.WalletAccountParams{
-					AddressFormat: models.AddressFormatEthereum.Pointer(),
-					Curve:         models.CurveSecp256k1.Pointer(),
-					PathFormat:    models.PathFormatBip32.Pointer(),
-					Path:          &path,
-				},
-			},
-		},
-		Type: (*string)(models.ActivityTypeCreateWalletAccounts.Pointer()),
-	})
-	resp, err := c.client.V0().Wallets.CreateWalletAccounts(params, c.client.Authenticator)
+	resp, err := c.post("/create-account", map[string]uint64{"idx": idx})
 	if err != nil {
 		return "", err
 	}
-	if resp == nil {
-		return "", errors.New("unexpected resp nil")
-	}
-	if resp.Payload == nil {
-		return "", errors.New("unexpected nil response payload")
-	}
-	if resp.Payload.Activity == nil {
-		return "", errors.New("unexpected nil response activity")
-	}
-	if resp.Payload.Activity.Result == nil {
-		return "", errors.New("unexpected nil response activity Result")
-	}
 
-	if resp.Payload.Activity.Result.CreateWalletAccountsResult == nil {
-		return "", errors.New("unexpected nil response CreateWalletAccountsResult")
+	var result map[string]string
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return "", fmt.Errorf("parse create account result: %w", err)
 	}
-	if resp.Payload.Activity.Result.CreateWalletAccountsResult.Addresses == nil {
-		return "", errors.New("unexpected nil response CreateWalletAccountsResult.Addresses")
-	}
-	if len(resp.Payload.Activity.Result.CreateWalletAccountsResult.Addresses) <= 0 ||
-		resp.Payload.Activity.Result.CreateWalletAccountsResult.Addresses[0] == "" {
-		return "", fmt.Errorf("unexpected empty addresses")
-	}
-	return resp.Payload.Activity.Result.CreateWalletAccountsResult.Addresses[0], nil
-}
-
-func (c *Client) Sign(userAccount string, unsignedMsg string) (signedMsg string, err error) {
-	if c.client == nil {
-		return "", errors.New("client is nil")
-	}
-	if userAccount == "" {
-		return "", errors.New("userAccount is empty")
-	}
-	decoded, err := base64.StdEncoding.DecodeString(unsignedMsg)
-	if err != nil {
-		return "", err
-	}
-	payloadHexMsg := hex.EncodeToString(decoded)
-	timestamp := time.Now().UnixMilli()
-	timestampString := strconv.FormatInt(timestamp, 10)
-	pkParams := signing.NewSignRawPayloadParams().WithBody(&models.SignRawPayloadRequest{
-		OrganizationID: c.client.DefaultOrganization(),
-		TimestampMs:    &timestampString,
-		Parameters: &models.SignRawPayloadIntentV2{
-			SignWith:     &userAccount,
-			Payload:      &payloadHexMsg,
-			HashFunction: models.HashFunctionNoOp.Pointer(),
-			Encoding:     models.PayloadEncodingHexadecimal.Pointer(),
-		},
-		Type: (*string)(models.ActivityTypeSignRawPayloadV2.Pointer()),
-	})
-	signedResp, err := c.client.V0().Signing.SignRawPayload(pkParams, c.client.Authenticator)
-
-	if err != nil {
-		return "", err
-	}
-	if signedResp.Payload == nil ||
-		signedResp.Payload.Activity == nil ||
-		signedResp.Payload.Activity.Result == nil ||
-		signedResp.Payload.Activity.Result.SignRawPayloadResult == nil ||
-		signedResp.Payload.Activity.Result.SignRawPayloadResult.R == nil ||
-		signedResp.Payload.Activity.Result.SignRawPayloadResult.S == nil ||
-		signedResp.Payload.Activity.Result.SignRawPayloadResult.V == nil {
-		return "", errors.New("unexpected nil fields in signed response")
-	}
-	result := signedResp.Payload.Activity.Result.SignRawPayloadResult
-	r := utils.TrimHex(*result.R)
-	s := utils.TrimHex(*result.S)
-	vHex := utils.TrimHex(*result.V)
-	vBytes, err := hex.DecodeString(vHex)
-	if err != nil {
-		return "", err
-	}
-	if len(vBytes) != 1 {
-		return "", errors.New("invalid v length")
-	}
-	if vBytes[0] < 27 {
-		vBytes[0] += 27
-	}
-	signedMsg = "0x" + r + s + hex.EncodeToString(vBytes)
-
-	return signedMsg, nil
-}
-
-// GetAccounts if idx < 0, get all accounts of wallet
-func (c *Client) GetAccounts(idx int64) ([]*models.WalletAccount, error) {
-	params := wallets.NewGetWalletAccountsParams().WithBody(&models.GetWalletAccountsRequest{
-		OrganizationID: c.client.DefaultOrganization(),
-		WalletID:       &c.WalletId,
-		PaginationOptions: &models.Pagination{
-			Limit: "100",
-		},
-	})
-
-	resp, err := c.client.V0().Wallets.GetWalletAccounts(params, c.client.Authenticator)
-	if err != nil {
-		return nil, err
-	}
-	if resp == nil || resp.Payload == nil || len(resp.Payload.Accounts) == 0 {
-		return nil, errors.New("unexpected empty response from GetWalletAccounts")
-	}
-	var ethAccounts []*models.WalletAccount
-
-	for _, acc := range resp.Payload.Accounts {
-		if acc == nil || acc.AddressFormat == nil || acc.Curve == nil || acc.Path == nil {
-			continue
-		}
-
-		if *acc.AddressFormat != "ADDRESS_FORMAT_ETHEREUM" || *acc.Curve != "CURVE_SECP256K1" {
-			continue
-		}
-
-		if idx < 0 {
-			ethAccounts = append(ethAccounts, acc)
-			continue
-		}
-
-		wantPath := fmt.Sprintf("m/44'/60'/0'/0/%d", idx)
-		if *acc.Path == wantPath {
-			return []*models.WalletAccount{acc}, nil
-		}
-	}
-
-	if idx < 0 {
-		if len(ethAccounts) == 0 {
-			return nil, errors.New("no ethereum accounts found")
-		}
-		return ethAccounts, nil
-	}
-
-	return nil, fmt.Errorf("ethereum account index=%d not found", idx)
+	return result["address"], nil
 }

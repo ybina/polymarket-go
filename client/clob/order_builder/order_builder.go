@@ -27,31 +27,86 @@ func NewOrderBuilder(signer *signer.Signer, sigType constants.SigType, funder co
 	}, nil
 }
 
-func (b *OrderBuilder) CreateOrder(signerHandler *signer.Signer, args clob_types.OrderArgs, options clob_types.PartialCreateOrderOptions) (utils_order_builder.SignedOrder, error) {
+// validateAndGetRoundConfig checks TickSize and NegRisk are set and returns the matching RoundConfig.
+func validateAndGetRoundConfig(options clob_types.PartialCreateOrderOptions) (*types.RoundConfig, error) {
 	if options.TickSize == nil {
-		return utils_order_builder.SignedOrder{}, errors.New("options.TickSize cannot be nil")
+		return nil, errors.New("options.TickSize cannot be nil")
 	}
 	if options.NegRisk == nil {
-		return utils_order_builder.SignedOrder{}, errors.New("options.NegRisk cannot be nil")
+		return nil, errors.New("options.NegRisk cannot be nil")
 	}
-	roundConfig := types.GetRoundConfig(*options.TickSize)
-	if roundConfig == nil {
-		return utils_order_builder.SignedOrder{}, errors.New("get round config error")
+	rc := types.GetRoundConfig(*options.TickSize)
+	if rc == nil {
+		return nil, errors.New("get round config error")
+	}
+	return rc, nil
+}
+
+// resolveSignerAddress returns the on-chain address that will appear in the order's signer field.
+func resolveSignerAddress(signerHandler *signer.Signer, turnkeyAccount common.Address) (common.Address, error) {
+	switch signerHandler.SignerType() {
+	case signer.Turnkey:
+		return turnkeyAccount, nil
+	case signer.PrivateKey:
+		return signerHandler.GetPubkeyOfPrivateKey()
+	default:
+		return common.Address{}, errors.New("signer type error")
+	}
+}
+
+// resolveExchange selects standard or neg-risk exchange address.
+func resolveExchange(contractConfig config.ContractConfig, negRisk bool) common.Address {
+	if negRisk {
+		return contractConfig.NegExchange
+	}
+	return contractConfig.Exchange
+}
+
+// adjustToDecimalPlaces rounds v down to maxPlaces decimal places, preferring rounding up first
+// to minimise loss, then rounding down only if still too many places.
+func adjustToDecimalPlaces(v decimal.Decimal, maxPlaces int) decimal.Decimal {
+	if utils.DecimalPlaces(v) > maxPlaces {
+		v = utils.RoundUp(v, maxPlaces+4)
+		if utils.DecimalPlaces(v) > maxPlaces {
+			v = utils.RoundDown(v, maxPlaces)
+		}
+	}
+	return v
+}
+
+// buildSignedOrder resolves the contract addresses and delegates to UtilsOrderBuilder.
+func (b *OrderBuilder) buildSignedOrder(
+	signerHandler *signer.Signer,
+	data utils_order_builder.OrderData,
+	options clob_types.PartialCreateOrderOptions,
+) (utils_order_builder.SignedOrder, error) {
+	contractConfig, err := config.GetContractConfig(types.Chain(signerHandler.ChainID()))
+	if err != nil {
+		return utils_order_builder.SignedOrder{}, err
+	}
+	exchange := resolveExchange(contractConfig, *options.NegRisk)
+	utilsOB, err := utils_order_builder.NewUtilsOrderBuilder(
+		exchange, int(signerHandler.ChainID()), signerHandler,
+		utils_order_builder.Option{TurnkeyAccount: options.TurnkeyAccount},
+	)
+	if err != nil {
+		return utils_order_builder.SignedOrder{}, err
+	}
+	return utilsOB.BuildSignedOrder(data)
+}
+
+func (b *OrderBuilder) CreateOrder(signerHandler *signer.Signer, args clob_types.OrderArgs, options clob_types.PartialCreateOrderOptions) (utils_order_builder.SignedOrder, error) {
+	roundConfig, err := validateAndGetRoundConfig(options)
+	if err != nil {
+		return utils_order_builder.SignedOrder{}, err
 	}
 	sideInt, makerAmount, takerAmount, err := b.GetOrderAmounts(args.Side, args.Size, args.Price, *roundConfig)
 	if err != nil {
 		return utils_order_builder.SignedOrder{}, err
 	}
-	var signerAddr common.Address
-	if signerHandler.SignerType() == signer.Turnkey {
-		signerAddr = options.TurnkeyAccount
-	} else if signerHandler.SignerType() == signer.PrivateKey {
-		signerAddr, err = signerHandler.GetPubkeyOfPrivateKey()
-		if err != nil {
-			return utils_order_builder.SignedOrder{}, err
-		}
-	} else {
-		return utils_order_builder.SignedOrder{}, errors.New("signer type error")
+	signerAddr, err := resolveSignerAddress(signerHandler, options.TurnkeyAccount)
+	if err != nil {
+		return utils_order_builder.SignedOrder{}, err
 	}
 	data := utils_order_builder.OrderData{
 		Maker:         b.Funder,
@@ -66,50 +121,21 @@ func (b *OrderBuilder) CreateOrder(signerHandler *signer.Signer, args clob_types
 		Expiration:    strconv.Itoa(args.Expiration),
 		SignatureType: b.SigType,
 	}
-	contractConfig, err := config.GetContractConfig(types.Chain(signerHandler.ChainID()))
-	if err != nil {
-		return utils_order_builder.SignedOrder{}, err
-	}
-	var exchange common.Address
-	if *options.NegRisk {
-		exchange = contractConfig.NegExchange
-	} else {
-		exchange = contractConfig.Exchange
-	}
-	utilsOption := utils_order_builder.Option{TurnkeyAccount: options.TurnkeyAccount}
-	utilsOrderBuilder, err := utils_order_builder.NewUtilsOrderBuilder(exchange, int(signerHandler.ChainID()), signerHandler, utilsOption)
-	if err != nil {
-		return utils_order_builder.SignedOrder{}, err
-	}
-	return utilsOrderBuilder.BuildSignedOrder(data)
-
+	return b.buildSignedOrder(signerHandler, data, options)
 }
 
 func (b *OrderBuilder) CreateMarketOrder(signerHandler *signer.Signer, args clob_types.MarketOrderArgs, options clob_types.PartialCreateOrderOptions) (utils_order_builder.SignedOrder, error) {
-	if options.TickSize == nil {
-		return utils_order_builder.SignedOrder{}, errors.New("options.TickSize cannot be nil")
-	}
-	if options.NegRisk == nil {
-		return utils_order_builder.SignedOrder{}, errors.New("options.NegRisk cannot be nil")
-	}
-	roundConfig := types.GetRoundConfig(*options.TickSize)
-	if roundConfig == nil {
-		return utils_order_builder.SignedOrder{}, errors.New("get round config error")
+	roundConfig, err := validateAndGetRoundConfig(options)
+	if err != nil {
+		return utils_order_builder.SignedOrder{}, err
 	}
 	side, makerAmount, takerAmount, err := b.GetMarketOrderAmounts(args.Side, args.Amount, args.Price, *roundConfig)
 	if err != nil {
 		return utils_order_builder.SignedOrder{}, err
 	}
-	var signerAddr common.Address
-	if signerHandler.SignerType() == signer.Turnkey {
-		signerAddr = options.TurnkeyAccount
-	} else if signerHandler.SignerType() == signer.PrivateKey {
-		signerAddr, err = signerHandler.GetPubkeyOfPrivateKey()
-		if err != nil {
-			return utils_order_builder.SignedOrder{}, err
-		}
-	} else {
-		return utils_order_builder.SignedOrder{}, errors.New("signer type error")
+	signerAddr, err := resolveSignerAddress(signerHandler, options.TurnkeyAccount)
+	if err != nil {
+		return utils_order_builder.SignedOrder{}, err
 	}
 	data := utils_order_builder.OrderData{
 		Maker:         b.Funder,
@@ -124,23 +150,7 @@ func (b *OrderBuilder) CreateMarketOrder(signerHandler *signer.Signer, args clob
 		Expiration:    "0",
 		SignatureType: b.SigType,
 	}
-	contractConfig, err := config.GetContractConfig(types.Chain(signerHandler.ChainID()))
-	if err != nil {
-		return utils_order_builder.SignedOrder{}, err
-	}
-	var exchange common.Address
-	if *options.NegRisk {
-		exchange = contractConfig.NegExchange
-	} else {
-		exchange = contractConfig.Exchange
-	}
-	utilsOption := utils_order_builder.Option{TurnkeyAccount: options.TurnkeyAccount}
-	utilsOrderBuilder, err := utils_order_builder.NewUtilsOrderBuilder(exchange, int(signerHandler.ChainID()), signerHandler, utilsOption)
-	if err != nil {
-		return utils_order_builder.SignedOrder{}, err
-	}
-	return utilsOrderBuilder.BuildSignedOrder(data)
-
+	return b.buildSignedOrder(signerHandler, data, options)
 }
 
 func (b *OrderBuilder) GetOrderAmounts(
@@ -152,42 +162,16 @@ func (b *OrderBuilder) GetOrderAmounts(
 
 	roundedPrice := utils.RoundNormal(price, roundConfig.Price)
 
-	if side == types.SideBuy {
+	switch side {
+	case types.SideBuy:
 		takerAmt := utils.RoundDown(size, roundConfig.Size)
+		makerRaw := adjustToDecimalPlaces(takerAmt.Mul(roundedPrice), roundConfig.Amount)
+		return side.Int(), utils.ToTokenDecimals(makerRaw), utils.ToTokenDecimals(takerAmt), nil
 
-		makerRaw := takerAmt.Mul(roundedPrice)
-
-		if utils.DecimalPlaces(makerRaw) > roundConfig.Amount {
-			makerRaw = utils.RoundUp(makerRaw, roundConfig.Amount+4)
-
-			if utils.DecimalPlaces(makerRaw) > roundConfig.Amount {
-				makerRaw = utils.RoundDown(makerRaw, roundConfig.Amount)
-			}
-		}
-
-		makerAmount = utils.ToTokenDecimals(makerRaw)
-		takerAmount = utils.ToTokenDecimals(takerAmt)
-
-		return side.Int(), makerAmount, takerAmount, nil
-	}
-
-	if side == types.SideSell {
+	case types.SideSell:
 		makerAmt := utils.RoundDown(size, roundConfig.Size)
-
-		takerRaw := makerAmt.Mul(roundedPrice)
-
-		if utils.DecimalPlaces(takerRaw) > int(roundConfig.Amount) {
-			takerRaw = utils.RoundUp(takerRaw, int(roundConfig.Amount)+4)
-
-			if utils.DecimalPlaces(takerRaw) > int(roundConfig.Amount) {
-				takerRaw = utils.RoundDown(takerRaw, int(roundConfig.Amount))
-			}
-		}
-
-		makerAmount = utils.ToTokenDecimals(makerAmt)
-		takerAmount = utils.ToTokenDecimals(takerRaw)
-
-		return side.Int(), makerAmount, takerAmount, nil
+		takerRaw := adjustToDecimalPlaces(makerAmt.Mul(roundedPrice), int(roundConfig.Amount))
+		return side.Int(), utils.ToTokenDecimals(makerAmt), utils.ToTokenDecimals(takerRaw), nil
 	}
 
 	return 0, "", "", fmt.Errorf("invalid side: must be BUY or SELL")
@@ -202,42 +186,19 @@ func (b *OrderBuilder) GetMarketOrderAmounts(
 
 	roundedPrice := utils.RoundNormal(price, roundConfig.Price)
 
-	if side == types.SideBuy {
+	switch side {
+	case types.SideBuy:
 		makerAmt := utils.RoundDown(amount, roundConfig.Size)
-
 		if roundedPrice.IsZero() {
 			return 0, "", "", fmt.Errorf("price cannot be 0")
 		}
-		takerRaw := makerAmt.Div(roundedPrice)
+		takerRaw := adjustToDecimalPlaces(makerAmt.Div(roundedPrice), roundConfig.Amount)
+		return side.Int(), utils.ToTokenDecimals(makerAmt), utils.ToTokenDecimals(takerRaw), nil
 
-		if utils.DecimalPlaces(takerRaw) > roundConfig.Amount {
-			takerRaw = utils.RoundUp(takerRaw, roundConfig.Amount+4)
-			if utils.DecimalPlaces(takerRaw) > roundConfig.Amount {
-				takerRaw = utils.RoundDown(takerRaw, roundConfig.Amount)
-			}
-		}
-
-		makerAmount = utils.ToTokenDecimals(makerAmt)
-		takerAmount = utils.ToTokenDecimals(takerRaw)
-
-		return side.Int(), makerAmount, takerAmount, nil
-	}
-	if side == types.SideSell {
+	case types.SideSell:
 		makerAmt := utils.RoundDown(amount, roundConfig.Size)
-
-		takerRaw := makerAmt.Mul(roundedPrice)
-
-		if utils.DecimalPlaces(takerRaw) > int(roundConfig.Amount) {
-			takerRaw = utils.RoundUp(takerRaw, int(roundConfig.Amount)+4)
-			if utils.DecimalPlaces(takerRaw) > int(roundConfig.Amount) {
-				takerRaw = utils.RoundDown(takerRaw, int(roundConfig.Amount))
-			}
-		}
-
-		makerAmount = utils.ToTokenDecimals(makerAmt)
-		takerAmount = utils.ToTokenDecimals(takerRaw)
-
-		return side.Int(), makerAmount, takerAmount, nil
+		takerRaw := adjustToDecimalPlaces(makerAmt.Mul(roundedPrice), int(roundConfig.Amount))
+		return side.Int(), utils.ToTokenDecimals(makerAmt), utils.ToTokenDecimals(takerRaw), nil
 	}
 
 	return 0, "", "", fmt.Errorf("invalid side: must be BUY or SELL")

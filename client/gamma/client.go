@@ -179,110 +179,84 @@ func (g *GammaSDK) extractResponseData(resp *APIResponse, operation string) ([]b
 	return resp.Data, nil
 }
 
-func (g *GammaSDK) unmarshalTeamsResponse(resp *APIResponse, operation string) ([]Team, error) {
-	data, err := g.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result []Team
+// unmarshalSlice is a generic helper that decodes a JSON array into a typed slice.
+func unmarshalSlice[T any](data []byte, operation string) ([]T, error) {
+	var result []T
 	if err := sonic.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
 	}
-
 	return result, nil
 }
 
+// unmarshalTagsResponse decodes a JSON array of UpdatedTag. Called from 5 places.
 func (g *GammaSDK) unmarshalTagsResponse(resp *APIResponse, operation string) ([]UpdatedTag, error) {
 	data, err := g.extractResponseData(resp, operation)
 	if err != nil {
 		return nil, err
 	}
-
-	var result []UpdatedTag
-	if err := sonic.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return result, nil
+	return unmarshalSlice[UpdatedTag](data, operation)
 }
 
+// unmarshalTagResponse decodes a single UpdatedTag, returning nil on 404. Called from 2 places.
 func (g *GammaSDK) unmarshalTagResponse(resp *APIResponse, operation string) (*UpdatedTag, error) {
 	if resp.Status == 404 {
 		return nil, nil
 	}
-
 	data, err := g.extractResponseData(resp, operation)
 	if err != nil {
 		return nil, err
 	}
-
 	var result UpdatedTag
 	if err := sonic.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
 	}
-
 	return &result, nil
 }
 
+// unmarshalRelatedTagRelationshipsResponse decodes a JSON array. Called from 2 places.
 func (g *GammaSDK) unmarshalRelatedTagRelationshipsResponse(resp *APIResponse, operation string) ([]RelatedTagRelationship, error) {
 	data, err := g.extractResponseData(resp, operation)
 	if err != nil {
 		return nil, err
 	}
-
-	var result []RelatedTagRelationship
-	if err := sonic.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return result, nil
+	return unmarshalSlice[RelatedTagRelationship](data, operation)
 }
 
-func (g *GammaSDK) unmarshalSeriesResponse(resp *APIResponse, operation string) ([]Series, error) {
-	data, err := g.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result []Series
-	if err := sonic.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return result, nil
-}
-
+// unmarshalSeriesSingleResponse decodes a single Series, returning nil on 404.
 func (g *GammaSDK) unmarshalSeriesSingleResponse(resp *APIResponse, operation string) (*Series, error) {
 	if resp.Status == 404 {
 		return nil, nil
 	}
-
 	data, err := g.extractResponseData(resp, operation)
 	if err != nil {
 		return nil, err
 	}
-
 	var result Series
 	if err := sonic.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
 	}
-
 	return &result, nil
 }
 
+// unmarshalCommentsResponse decodes a JSON array of Comment. Called from 3 places.
 func (g *GammaSDK) unmarshalCommentsResponse(resp *APIResponse, operation string) ([]Comment, error) {
 	data, err := g.extractResponseData(resp, operation)
 	if err != nil {
 		return nil, err
 	}
+	return unmarshalSlice[Comment](data, operation)
+}
 
-	var result []Comment
+func (g *GammaSDK) unmarshalSearchResponse(resp *APIResponse, operation string) (*SearchResponse, error) {
+	data, err := g.extractResponseData(resp, operation)
+	if err != nil {
+		return nil, err
+	}
+	var result SearchResponse
 	if err := sonic.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
 	}
-
-	return result, nil
+	return &result, nil
 }
 
 func (g *GammaSDK) unmarshalEventsResponse(resp *APIResponse, operation string) ([]Event, error) {
@@ -321,20 +295,6 @@ func (g *GammaSDK) unmarshalMarketsResponse(resp *APIResponse, operation string)
 	}
 
 	return markets, nil
-}
-
-func (g *GammaSDK) unmarshalSearchResponse(resp *APIResponse, operation string) (*SearchResponse, error) {
-	data, err := g.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result SearchResponse
-	if err := sonic.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return &result, nil
 }
 
 func (g *GammaSDK) parseJSONArray(value interface{}) []string {
@@ -449,13 +409,15 @@ func (g *GammaSDK) GetTeams(query *TeamQuery) ([]Team, error) {
 	if query == nil {
 		query = &TeamQuery{}
 	}
-
 	resp, err := g.makeRequest("GET", "/teams", query)
 	if err != nil {
 		return nil, err
 	}
-
-	return g.unmarshalTeamsResponse(resp, "Get teams")
+	data, err := g.extractResponseData(resp, "Get teams")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalSlice[Team](data, "Get teams")
 }
 
 func (g *GammaSDK) GetTags(query TagQuery) ([]UpdatedTag, error) {
@@ -739,8 +701,11 @@ func (g *GammaSDK) GetSeries(query SeriesQuery) ([]Series, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	return g.unmarshalSeriesResponse(resp, "Get series")
+	data, err := g.extractResponseData(resp, "Get series")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalSlice[Series](data, "Get series")
 }
 
 func (g *GammaSDK) GetSeriesById(id int, query *SeriesByIdQuery) (*Series, error) {

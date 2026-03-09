@@ -384,6 +384,38 @@ func (c *ClobClient) GetClosedOnlyMode(funder common.Address) (*types.BanStatus,
 	return &result, err
 }
 
+// GetBalanceAllowance gets the balance and allowance for the funder.
+// Requires L2 authentication.
+// Set params.AssetType to AssetTypeCollateral for USDC or AssetTypeConditional for a YES/NO token.
+// When AssetTypeConditional, params.TokenID must be set.
+func (c *ClobClient) GetBalanceAllowance(funder common.Address, params *types.BalanceAllowanceParams) (*types.BalanceAllowanceResponse, error) {
+	if c.creds == nil {
+		return nil, fmt.Errorf("API credentials are required")
+	}
+
+	headerArgs := &types.L2HeaderArgs{
+		Method:      "GET",
+		RequestPath: endpoint.GetBalanceAllowance,
+	}
+
+	l2Headers, err := c.createL2Headers(funder, headerArgs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create L2 headers: %w", err)
+	}
+
+	queryParams := url.Values{}
+	if params != nil {
+		queryParams.Add("asset_type", string(params.AssetType))
+		if params.TokenID != nil {
+			queryParams.Add("token_id", *params.TokenID)
+		}
+	}
+
+	var result types.BalanceAllowanceResponse
+	err = c.getJSONWithHeadersAndParams(endpoint.GetBalanceAllowance, l2Headers, queryParams, &result)
+	return &result, err
+}
+
 // DeleteApiKey deletes API key
 func (c *ClobClient) DeleteApiKey(funder common.Address) error {
 	if c.creds == nil {
@@ -844,18 +876,7 @@ func (c *ClobClient) createOrder(args clob_types.OrderArgs, option clob_types.Pa
 		return utils_order_builder.SignedOrder{}, err
 	}
 	args.FeeRateBps = feeRateBps
-	var funder common.Address
-	var signatureType constants.SigType
-	if c.signer.SignerType() == signer.Turnkey {
-		signatureType = constants.POLY_GNOSIS_SAFE
-		funder = option.SafeAccount
-
-	} else if c.signer.SignerType() == signer.PrivateKey {
-		signatureType = constants.POLY_GNOSIS_SAFE
-		funder = option.SafeAccount
-	}
-
-	orderBuilder, err := order_builder.NewOrderBuilder(c.signer, signatureType, funder)
+	orderBuilder, err := order_builder.NewOrderBuilder(c.signer, constants.POLY_GNOSIS_SAFE, option.SafeAccount)
 	if err != nil {
 		return utils_order_builder.SignedOrder{}, err
 	}
@@ -938,17 +959,16 @@ func (c *ClobClient) postOrder(order utils_order_builder.SignedOrder, option clo
 		result := types.OrderResponse{}
 		err = c.postJSONWithHeaders(endpoint.PostOrder, enriched, serializedBody, &result)
 		if err != nil {
-			log.Printf("postJSONWithHeaders: %s\n", err)
 			return nil, err
 		}
 		return &result, nil
 	} else {
 		result := types.OrderResponse{}
-		l2h, err := sonic.MarshalString(l2headers)
-		if err != nil {
-			return nil, err
-		}
-		log.Printf("before post l2headers:%v\n", l2h)
+		//l2h, err := sonic.MarshalString(l2headers)
+		//if err != nil {
+		//	return nil, err
+		//}
+		//log.Printf("before post l2headers:%v\n", l2h)
 		err = c.postJSONWithHeaders(endpoint.PostOrder, l2headers, serializedBody, &result)
 		if err != nil {
 			return nil, err
@@ -1006,9 +1026,6 @@ func (c *ClobClient) orderToBody(order utils_order_builder.SignedOrder, creds *t
 	return body, nil
 }
 
-func (c *ClobClient) generateBuilderHeaders(headerArgs types.L2HeaderArgs, headers types.L2PolyHeader) {
-
-}
 func (c *ClobClient) priceValid(price decimal.Decimal, tickSize types.TickSize) error {
 	ts, err := decimal.NewFromString(string(tickSize))
 	if err != nil {
@@ -1028,10 +1045,6 @@ func (c *ClobClient) priceValid(price decimal.Decimal, tickSize types.TickSize) 
 	}
 
 	return nil
-}
-
-func (c *ClobClient) GetOrders(orderIds []string) {
-
 }
 
 func (c *ClobClient) CancelOrder(orderId string, signerAddr common.Address) (*types.OrderResponse, error) {
@@ -1067,10 +1080,6 @@ func (c *ClobClient) CancelOrder(orderId string, signerAddr common.Address) (*ty
 		return nil, err
 	}
 	return &result, nil
-}
-
-func (c *ClobClient) CancelOrders() {
-
 }
 
 func (c *ClobClient) CancelAllOrders(signerAddr common.Address) (*types.OrderResponse, error) {
@@ -1151,26 +1160,9 @@ func (c *ClobClient) createMarketOrder(args clob_types.MarketOrderArgs, option c
 	if args.OrderType == "" {
 		args.OrderType = types.OrderTypeFOK
 	}
-	var funder common.Address
-	var signatureType constants.SigType
-	if c.signer.SignerType() == signer.Turnkey {
-		signatureType = constants.POLY_GNOSIS_SAFE
-		funder = option.SafeAccount
-
-	} else if c.signer.SignerType() == signer.PrivateKey {
-		signatureType = constants.POLY_GNOSIS_SAFE
-		funder = option.SafeAccount
-	}
-
-	orderBuilder, err := order_builder.NewOrderBuilder(c.signer, signatureType, funder)
+	orderBuilder, err := order_builder.NewOrderBuilder(c.signer, constants.POLY_GNOSIS_SAFE, option.SafeAccount)
 	if err != nil {
 		return utils_order_builder.SignedOrder{}, err
 	}
 	return orderBuilder.CreateMarketOrder(c.signer, args, option)
-}
-
-func (c *ClobClient) CancelMarketOrders() {}
-
-func (c *ClobClient) GetBuilderTrades() {
-
 }

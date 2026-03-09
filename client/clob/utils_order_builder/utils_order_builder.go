@@ -15,7 +15,6 @@ import (
 	"github.com/ybina/polymarket-go/client/relayer/model/polyEip712"
 	"github.com/ybina/polymarket-go/client/signer"
 	"github.com/ybina/polymarket-go/client/types"
-	"github.com/ybina/polymarket-go/tools/eip712"
 )
 
 func NewUtilsOrderBuilder(exchange common.Address, chainId int, signerHandler *signer.Signer, option Option) (*UtilsOrderBuilder, error) {
@@ -176,54 +175,6 @@ func (b *UtilsOrderBuilder) buildOrder(data OrderData) (Order, error) {
 		SignatureType: sigType,
 	}, nil
 
-}
-
-func (b *UtilsOrderBuilder) buildOrderSignature(order Order) (string, error) {
-	chainIdStr := strconv.Itoa(b.ChainId)
-	typedData := eip712.TypedData{
-		Types: map[string][]eip712.EIP712Type{
-			"Order": {
-				{Name: "salt", Type: "uint256"},
-				{Name: "maker", Type: "address"},
-				{Name: "signer", Type: "address"},
-				{Name: "taker", Type: "address"},
-				{Name: "tokenId", Type: "uint256"},
-				{Name: "makerAmount", Type: "uint256"},
-				{Name: "takerAmount", Type: "uint256"},
-				{Name: "expiration", Type: "uint256"},
-				{Name: "nonce", Type: "uint256"},
-				{Name: "feeRateBps", Type: "uint256"},
-				{Name: "side", Type: "uint256"},
-				{Name: "signatureType", Type: "uint256"},
-			},
-		},
-		PrimaryType: "Order",
-		Domain: eip712.EIP712Domain{
-			Name:              constants.PolyExchangeDomainName,
-			Version:           "1",
-			ChainID:           chainIdStr,
-			VerifyingContract: b.ExchangeAddress.Hex(),
-		},
-		Message: order,
-	}
-	var err error
-	var sig string
-	typedDataHash, err := eip712.GetTypedDataHash(typedData)
-	if err != nil {
-		return "", err
-	}
-	if b.Signer.SignerType() == signer.Turnkey {
-		sig, err = b.Signer.SignHashWithTurnkey(typedDataHash.String(), b.Option.TurnkeyAccount)
-		if err != nil {
-			return "", err
-		}
-	} else {
-		sig, err = b.Signer.SignHash(typedDataHash.String())
-		if err != nil {
-			return "", err
-		}
-	}
-	return utils.Prepend0x(sig), nil
 }
 
 func (b *UtilsOrderBuilder) validateInputs(data OrderData) error {

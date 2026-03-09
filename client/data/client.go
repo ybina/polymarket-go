@@ -190,6 +190,24 @@ func (d *DataSDK) extractResponseData(resp *APIResponse, operation string) ([]by
 	return resp.Data, nil
 }
 
+// unmarshalSlice is a generic helper that decodes a JSON array into a typed slice.
+func unmarshalSlice[T any](data []byte, operation string) ([]T, error) {
+	var result []T
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
+	}
+	return result, nil
+}
+
+// unmarshalSingle is a generic helper that decodes a JSON object into a typed pointer.
+func unmarshalSingle[T any](data []byte, operation string) (*T, error) {
+	var result T
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
+	}
+	return &result, nil
+}
+
 func (d *DataSDK) GetHealth() (*DataHealthResponse, error) {
 	resp, err := d.makeRequest("GET", "/", nil)
 	if err != nil {
@@ -210,117 +228,135 @@ func (d *DataSDK) GetCurrentPositions(query *PositionsQuery) ([]Position, error)
 	if query == nil {
 		query = &PositionsQuery{}
 	}
-
 	resp, err := d.makeRequest("GET", "/positions", query)
 	if err != nil {
 		return nil, err
 	}
-
-	return d.unmarshalPositionsResponse(resp, "Get current positions")
+	data, err := d.extractResponseData(resp, "Get current positions")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalSlice[Position](data, "Get current positions")
 }
 
 func (d *DataSDK) GetClosedPositions(query *ClosedPositionsQuery) ([]ClosedPosition, error) {
 	if query == nil {
 		query = &ClosedPositionsQuery{}
 	}
-
 	resp, err := d.makeRequest("GET", "/closed-positions", query)
 	if err != nil {
 		return nil, err
 	}
-
-	return d.unmarshalClosedPositionsResponse(resp, "Get closed positions")
+	data, err := d.extractResponseData(resp, "Get closed positions")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalSlice[ClosedPosition](data, "Get closed positions")
 }
 
 func (d *DataSDK) GetTrades(query *TradesQuery) ([]DataTrade, error) {
 	if query == nil {
 		query = &TradesQuery{}
 	}
-
 	resp, err := d.makeRequest("GET", "/trades", query)
 	if err != nil {
 		return nil, err
 	}
-
-	return d.unmarshalTradesResponse(resp, "Get trades")
+	data, err := d.extractResponseData(resp, "Get trades")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalSlice[DataTrade](data, "Get trades")
 }
 
 func (d *DataSDK) GetUserActivity(query *UserActivityQuery) ([]Activity, error) {
 	if query == nil {
 		query = &UserActivityQuery{}
 	}
-
 	resp, err := d.makeRequest("GET", "/activity", query)
 	if err != nil {
 		return nil, err
 	}
-
-	return d.unmarshalActivityResponse(resp, "Get user activity")
+	data, err := d.extractResponseData(resp, "Get user activity")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalSlice[Activity](data, "Get user activity")
 }
 
 func (d *DataSDK) GetTopHolders(query *TopHoldersQuery) ([]MetaHolder, error) {
 	if query == nil {
 		query = &TopHoldersQuery{}
 	}
-
 	resp, err := d.makeRequest("GET", "/holders", query)
 	if err != nil {
 		return nil, err
 	}
-
-	return d.unmarshalMetaHoldersResponse(resp, "Get top holders")
+	data, err := d.extractResponseData(resp, "Get top holders")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalSlice[MetaHolder](data, "Get top holders")
 }
 
 func (d *DataSDK) GetTotalValue(query *TotalValueQuery) ([]TotalValue, error) {
 	if query == nil {
 		query = &TotalValueQuery{}
 	}
-
 	resp, err := d.makeRequest("GET", "/value", query)
 	if err != nil {
 		return nil, err
 	}
-
-	return d.unmarshalTotalValueResponse(resp, "Get total value")
+	data, err := d.extractResponseData(resp, "Get total value")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalSlice[TotalValue](data, "Get total value")
 }
 
 func (d *DataSDK) GetTotalMarketsTraded(query *TotalMarketsTradedQuery) (*TotalMarketsTraded, error) {
 	if query == nil {
 		query = &TotalMarketsTradedQuery{}
 	}
-
 	resp, err := d.makeRequest("GET", "/traded", query)
 	if err != nil {
 		return nil, err
 	}
-
-	return d.unmarshalTotalMarketsTradedResponse(resp, "Get total markets traded")
+	data, err := d.extractResponseData(resp, "Get total markets traded")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalSingle[TotalMarketsTraded](data, "Get total markets traded")
 }
 
 func (d *DataSDK) GetOpenInterest(query *OpenInterestQuery) ([]OpenInterest, error) {
 	if query == nil {
 		query = &OpenInterestQuery{}
 	}
-
 	resp, err := d.makeRequest("GET", "/oi", query)
 	if err != nil {
 		return nil, err
 	}
-
-	return d.unmarshalOpenInterestResponse(resp, "Get open interest")
+	data, err := d.extractResponseData(resp, "Get open interest")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalSlice[OpenInterest](data, "Get open interest")
 }
 
 func (d *DataSDK) GetLiveVolume(query *LiveVolumeQuery) (*LiveVolumeResponse, error) {
 	if query == nil {
 		query = &LiveVolumeQuery{}
 	}
-
 	resp, err := d.makeRequest("GET", "/live-volume", query)
 	if err != nil {
 		return nil, err
 	}
-
-	return d.unmarshalLiveVolumeResponse(resp, "Get live volume")
+	data, err := d.extractResponseData(resp, "Get live volume")
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalSingle[LiveVolumeResponse](data, "Get live volume")
 }
 
 func (d *DataSDK) GetAllPositions(user string, options *struct {
@@ -444,132 +480,6 @@ func (d *DataSDK) GetPortfolioSummary(user string) (*struct {
 		MarketsTraded:    marketsTraded,
 		CurrentPositions: positions,
 	}, nil
-}
-
-func (d *DataSDK) unmarshalPositionsResponse(resp *APIResponse, operation string) ([]Position, error) {
-	data, err := d.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result []Position
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return result, nil
-}
-
-func (d *DataSDK) unmarshalClosedPositionsResponse(resp *APIResponse, operation string) ([]ClosedPosition, error) {
-	data, err := d.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result []ClosedPosition
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return result, nil
-}
-
-func (d *DataSDK) unmarshalTradesResponse(resp *APIResponse, operation string) ([]DataTrade, error) {
-	data, err := d.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result []DataTrade
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return result, nil
-}
-
-func (d *DataSDK) unmarshalActivityResponse(resp *APIResponse, operation string) ([]Activity, error) {
-	data, err := d.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result []Activity
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return result, nil
-}
-
-func (d *DataSDK) unmarshalMetaHoldersResponse(resp *APIResponse, operation string) ([]MetaHolder, error) {
-	data, err := d.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result []MetaHolder
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return result, nil
-}
-
-func (d *DataSDK) unmarshalTotalValueResponse(resp *APIResponse, operation string) ([]TotalValue, error) {
-	data, err := d.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result []TotalValue
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return result, nil
-}
-
-func (d *DataSDK) unmarshalTotalMarketsTradedResponse(resp *APIResponse, operation string) (*TotalMarketsTraded, error) {
-	data, err := d.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result TotalMarketsTraded
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return &result, nil
-}
-
-func (d *DataSDK) unmarshalOpenInterestResponse(resp *APIResponse, operation string) ([]OpenInterest, error) {
-	data, err := d.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result []OpenInterest
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return result, nil
-}
-
-func (d *DataSDK) unmarshalLiveVolumeResponse(resp *APIResponse, operation string) (*LiveVolumeResponse, error) {
-	data, err := d.extractResponseData(resp, operation)
-	if err != nil {
-		return nil, err
-	}
-
-	var result LiveVolumeResponse
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s response: %w", operation, err)
-	}
-
-	return &result, nil
 }
 
 type APIResponse struct {

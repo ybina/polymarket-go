@@ -82,7 +82,7 @@ func (s *Signer) Address() string {
 		if err != nil {
 			return ""
 		}
-		return *acc[0].Address
+		return acc[0].Address
 	}
 	return ""
 }
@@ -102,47 +102,47 @@ func (s *Signer) ChainID() int64 {
 	return s.chainID
 }
 
-// SignHash should trim 0x prefix
+// decodeHashHex decodes a hex string (with or without 0x prefix) into exactly 32 bytes.
+func decodeHashHex(hashHex string) ([]byte, error) {
+	hashBytes, err := hex.DecodeString(utils.TrimHex(hashHex))
+	if err != nil {
+		return nil, err
+	}
+	if len(hashBytes) != 32 {
+		return nil, errors.New("hash must be 32 bytes")
+	}
+	return hashBytes, nil
+}
+
+// SignHash signs a raw 32-byte hash with the private key.
 func (s *Signer) SignHash(hashHex string) (string, error) {
 	if s.signerType != PrivateKey {
 		return "", errors.New("signer type not match")
 	}
-	hashBytes, err := hex.DecodeString(utils.TrimHex(hashHex))
+	hashBytes, err := decodeHashHex(hashHex)
 	if err != nil {
 		return "", err
 	}
-	if len(hashBytes) != 32 {
-		return "", errors.New("hash must be 32 bytes")
-	}
-
 	sig, err := crypto.Sign(hashBytes, s.privateKeyClient.PrivateKey)
 	if err != nil {
 		return "", err
 	}
-
 	return "0x" + hex.EncodeToString(sig), nil
 }
 
+// SignHashWithTurnkey signs a raw 32-byte hash via the Turnkey service.
 func (s *Signer) SignHashWithTurnkey(hashHex string, turnkeyAccount common.Address) (string, error) {
-
 	if s.signerType != Turnkey {
 		return "", errors.New("signer type not match")
 	}
 	if turnkeyAccount == constants.ZERO_ADDRESS {
 		return "", errors.New("turnkey account is empty")
 	}
-	hashBytes, err := hex.DecodeString(utils.TrimHex(hashHex))
+	hashBytes, err := decodeHashHex(hashHex)
 	if err != nil {
 		return "", err
 	}
-	if len(hashBytes) != 32 {
-		return "", errors.New("hash must be 32 bytes")
-	}
-	payloadB64 := base64.StdEncoding.EncodeToString(hashBytes)
-	sig, err := s.turnkeyClient.Sign(
-		turnkeyAccount.Hex(),
-		payloadB64,
-	)
+	sig, err := s.turnkeyClient.Sign(turnkeyAccount.Hex(), base64.StdEncoding.EncodeToString(hashBytes))
 	if err != nil {
 		return "", err
 	}
@@ -151,93 +151,32 @@ func (s *Signer) SignHashWithTurnkey(hashHex string, turnkeyAccount common.Addre
 		return "", fmt.Errorf("turnkey signature hex length=%d (want 130). sig=%s", len(sig), sig)
 	}
 	return utils.Prepend0x(sig), nil
-
 }
 
-func (s *Signer) SignEIP712StructHash0(structHashHex string, turnkeyAccount string) (string, error) {
-	if s.signerType == PrivateKey {
-		hashBytes, err := hex.DecodeString(utils.TrimHex(structHashHex))
-		if err != nil {
-			return "", err
-		}
-		if len(hashBytes) != 32 {
-			return "", errors.New("struct hash must be 32 bytes")
-		}
-
-		msg := accounts.TextHash(hashBytes)
-
-		sig, err := crypto.Sign(msg, s.privateKeyClient.PrivateKey)
-		if err != nil {
-			return "", err
-		}
-
-		return "0x" + hex.EncodeToString(sig), nil
-	}
-	if s.signerType == Turnkey {
-		if turnkeyAccount == "" {
-			return "", errors.New("turnkey account is empty")
-		}
-		hashBytes, err := hex.DecodeString(utils.TrimHex(structHashHex))
-		if err != nil {
-			return "", err
-		}
-		if len(hashBytes) != 32 {
-			return "", errors.New("struct hash must be 32 bytes")
-		}
-
-		payloadB64 := base64.StdEncoding.EncodeToString(hashBytes)
-
-		sig, err := s.turnkeyClient.Sign(
-			turnkeyAccount,
-			payloadB64,
-		)
-		if err != nil {
-			return "", err
-		}
-
-		return utils.Prepend0x(sig), nil
-	}
-	return "", errors.New("invalid signerType")
-}
-
+// SignEIP712StructHash applies personal_sign (eth_sign) over a 32-byte struct hash.
 func (s *Signer) SignEIP712StructHash(structHashHex string, turnkeyAccount common.Address) (string, error) {
-	if s.signerType == PrivateKey {
-		hashBytes, err := hex.DecodeString(utils.TrimHex(structHashHex))
-		if err != nil {
-			return "", err
-		}
-		if len(hashBytes) != 32 {
-			return "", errors.New("struct hash must be 32 bytes")
-		}
-
-		msg := accounts.TextHash(hashBytes)
+	hashBytes, err := decodeHashHex(structHashHex)
+	if err != nil {
+		return "", err
+	}
+	msg := accounts.TextHash(hashBytes)
+	switch s.signerType {
+	case PrivateKey:
 		sig, err := crypto.Sign(msg, s.privateKeyClient.PrivateKey)
 		if err != nil {
 			return "", err
 		}
 		return "0x" + hex.EncodeToString(sig), nil
-	}
-
-	if s.signerType == Turnkey {
+	case Turnkey:
 		if turnkeyAccount == constants.ZERO_ADDRESS {
 			return "", errors.New("turnkey account is empty")
 		}
-		hashBytes, err := hex.DecodeString(utils.TrimHex(structHashHex))
-		if err != nil {
-			return "", err
-		}
-		if len(hashBytes) != 32 {
-			return "", errors.New("struct hash must be 32 bytes")
-		}
-
-		msg := accounts.TextHash(hashBytes)
-		payloadB64 := base64.StdEncoding.EncodeToString(msg)
-
-		sig, err := s.turnkeyClient.Sign(turnkeyAccount.Hex(), payloadB64)
+		sig, err := s.turnkeyClient.Sign(turnkeyAccount.Hex(), base64.StdEncoding.EncodeToString(msg))
 		if err != nil {
 			return "", err
 		}
 		return utils.Prepend0x(sig), nil
+	default:
+		return "", errors.New("invalid signerType")
 	}
-	return "", errors.New("invalid signerType")
 }
