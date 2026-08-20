@@ -1,3 +1,5 @@
+
+
 # polymarket-go
 
 A Go SDK for **Polymarket** (community / third-party implementation).
@@ -55,6 +57,7 @@ tools/      – EIP-712, HMAC, header utilities
   - `github.com/ethereum/go-ethereum`
   - `github.com/gorilla/websocket`
   - `github.com/shopspring/decimal`
+  - `github.com/bytedance/sonic`
   - `github.com/tkhq/go-sdk` (Turnkey)
 
 ---
